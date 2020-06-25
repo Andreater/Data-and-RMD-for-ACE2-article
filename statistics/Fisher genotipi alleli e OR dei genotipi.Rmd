@@ -1,0 +1,355 @@
+---
+title: "Fisher Allleles and Genotype"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(tidyverse)
+library(openxlsx)
+library(qvalue)
+```
+
+```{r parametrization}
+# User defined Attributes
+
+# Input paths
+input.path = "E:\\Ace2\\Elaborati\\SNP Genotipi\\"
+
+# Outpaths
+out.path = "E:\\Ace2\\Fisher results\\"
+```
+
+```{r udf}
+rowfish <-
+   function(x) { x1 <- 
+                      fisher.test(matrix(x, nrow = 2, ncol = 2))
+                      c(x1$p.value, x1$conf.int, x1$estimate)
+   }
+
+rowfist <-
+   function(x) { x1 <- 
+                      fisher.test(matrix(x, nrow = 3, ncol = 2))
+                      c(x1$p.value, x1$conf.int, x1$estimate)
+   }
+```
+
+## Population Manipulation
+
+Potrei mergiare le liste e procedere in una sola volta per tutto. lo valuto più avanti.
+
+```{r Allelic counts import}
+# Dataframe names import
+data.names = list.files(path       = input.path,
+                        pattern    = "*.xlsx",
+                        full.names = FALSE)
+
+# Serve a dirgli che la lista in cui caricare le cose è una sola
+al.list = list()
+
+# Popola la lista di ogni elemento i dei fogli in questione
+for (i in 1:length(data.names)) {
+  al.list[[i]] = read.xlsx(paste(input.path, data.names[i], sep = ""), sheet = 2)
+}
+```
+
+```{r Genotype counts import}
+# Serve a dirgli che la lista in cui caricare le cose è una sola
+gen.list = list()
+
+# Popola la lista di ogni elemento i dei fogli in questione
+for (i in 1:length(data.names)) {
+  gen.list[[i]] = read.xlsx(paste(input.path, data.names[i], sep = ""), sheet = 3)
+}
+```
+
+```{r Base Manipulation}
+# preparing for renaming
+data.names = str_remove(string = data.names, pattern = ".xlsx")
+
+# renaming
+names(al.list)  = data.names
+names(gen.list) = data.names
+
+# Save Allelic counts of Italians on a side
+al.counts.ita = as.data.frame(al.list["ITA"])
+al.counts.ita = al.counts.ita[, -c(1)]
+al.counts.ita = setNames(al.counts.ita, c("Location", "ITA_Al1", "ITA_Al2")) 
+
+#Save a SNP vector
+AL.SNP = al.counts.ita$Location
+
+# Rename AL columns of controls
+al.list = lapply(al.list[c(1:4,6)], function(x) rename(x, CTRL_Al1 = Al.1,
+                                                          CTRL_AL2 = Al.2))
+
+# Remove Population column
+al.list = lapply(al.list, function(x) x[, -c(1)])
+
+# left join in the list
+al.list = lapply(al.list, function(x) left_join(x, al.counts.ita, by = "Location"))
+
+# Remove first column
+al.list = lapply(al.list, FUN = function(x) x[, -c(1)])
+```
+
+# Fisher tests alleles
+
+```{r}
+# Applico la funzione per il Fisher test
+res.list = lapply(al.list, FUN = function(x) apply(x, MARGIN = 1, FUN = rowfish))
+
+# Traspongo la matrice di risultati e la salvo come dataframe
+res.list = lapply(res.list, FUN = function(x) as.data.frame(t(x)))
+
+# Bindo il dataset di dati grezzi e il dataset corrispondente di risultati
+al.list = map2(.x = al.list, .y = res.list, bind_cols)
+
+# rinomino le variabili nuove provenienti dai risultati
+al.list = lapply(al.list, FUN = function(x) rename(x, p.value = V1,
+                                                      low = V2,
+                                                      Up = V3,
+                                                      OR =`odds ratio`))
+
+# riassocio gli SNP
+al.list = lapply(al.list, FUN = function(x) mutate(x, SNP = AL.SNP))
+
+# reorder
+al.list = lapply(al.list, FUN = function(x) x[, c(9, 1:8)])
+```
+
+# Q values alleles
+
+```{r}
+# q values
+# Calcolo i qvalue e li storo
+res.list = lapply(al.list, function(x) qvalue(x$p.value))
+
+# li salvo
+res.list = lapply(res.list, function(x) x$qvalues) 
+
+# li passo a data frame
+res.list = lapply(res.list, function(x) as.data.frame(x))
+
+# binderello tra i due dataframe
+al.list = map2(al.list, res.list, bind_cols)
+
+# rinomonio la colonna nel modo giusto
+al.list = lapply(al.list, FUN = function(x) rename(x, qvalue = x))
+
+# reorder
+al.list = lapply(al.list, FUN = function(x) x[, c(1:6, 10, 7:9)])
+
+# Ordinare e subsettare link
+# http://adv-r.had.co.nz/Subsetting.html
+al.list = lapply(al.list, FUN = function(x) x[order(x$p.value, x$qvalue),])
+```
+
+## Allelic Export
+
+```{r}
+write.xlsx(al.list, file = paste(out.path, "Allelic results.xlsx", sep = ""))
+
+# cleaning
+remove(res.list, AL.SNP, al.counts.ita, al.list)
+```
+
+## Genotypes
+
+```{r Base Manipulation}
+# Save Allelic counts of Italians on a side
+gen.counts.ita = as.data.frame(gen.list["ITA"])
+gen.counts.ita = gen.counts.ita[, -c(1)]
+gen.counts.ita = setNames(gen.counts.ita, c("Location", 
+                                           "ITA_Homo_REF",
+                                           "ITA_Hetero",
+                                           "ITA_Homo_VAR")) 
+
+#Save a SNP vector
+gen.SNP = gen.counts.ita$Location
+
+# Rename AL columns of controls
+gen.list = lapply(gen.list[c(1:4,6)], function(x) rename(x, CTRL_Homo_REF = Homozygote_Reference,
+                                                           CTRL_Hetero   = Heterozygote,
+                                                           CTRL_Homo_VAR = Homozygote_Variant))
+
+# Remove Population column
+gen.list = lapply(gen.list, function(x) x[, -c(1)])
+
+# left join in the list
+gen.list = lapply(gen.list, function(x) left_join(x, gen.counts.ita, by = "Location"))
+
+# Remove first column
+gen.list = lapply(gen.list, FUN = function(x) x[, -c(1)])
+```
+
+# Fisher tests genotypes
+
+```{r}
+# Applico la funzione per il Fisher test
+res.list = lapply(gen.list, FUN = function(x) apply(x, MARGIN = 1, FUN = rowfist))
+
+# salvo la matrice come dataframe e rinomino
+res.list = lapply(res.list, FUN = function(x) as.data.frame((x)))
+res.list = lapply(res.list, FUN = function(x) rename(x, x1 = "(x)"))
+
+# Bindo il dataset di dati grezzi e il dataset corrispondente di risultati
+gen.list = map2(.x = gen.list, .y = res.list, bind_cols)
+
+# rinomino le variabili nuove provenienti dai risultati
+gen.list = lapply(gen.list, FUN = function(x) rename(x, p.value = x1))
+
+# riassocio gli SNP
+gen.list = lapply(gen.list, FUN = function(x) mutate(x, SNP = gen.SNP))
+
+# reorder
+gen.list = lapply(gen.list, FUN = function(x) x[, c(8, 1:7)])
+```
+
+# ODDs ratio OMO
+
+```{r}
+ODDS.omo.list = lapply(gen.list, function(x) x[, c(7, 4, 5, 2)])
+
+# Check per il formato
+lapply(ODDS.omo.list, function(x) matrix(x[c(1),], nrow = 2, ncol = 2))
+
+# Applico la funzione per il Fisher test
+res.odds.omo = lapply(ODDS.omo.list, FUN = function(x) apply(x, MARGIN = 1, FUN = rowfish))
+
+# Traspongo la matrice di risultati e la salvo come dataframe
+res.odds.omo = lapply(res.odds.omo, FUN = function(x) as.data.frame(t(x)))
+
+# Bindo il dataset di dati grezzi e il dataset corrispondente di risultati
+ODDS.omo.list = map2(.x = ODDS.omo.list, .y = res.odds.omo, bind_cols)
+
+# rinomino le variabili nuove provenienti dai risultati
+ODDS.omo.list = lapply(ODDS.omo.list, FUN = function(x) rename(x, p.value = V1,
+                                                                  low = V2,
+                                                                  Up = V3,
+                                                                  OR =`odds ratio`))
+
+# riassocio gli SNP
+ODDS.omo.list = lapply(ODDS.omo.list, FUN = function(x) mutate(x, SNP = gen.SNP))
+
+# reorder
+ODDS.omo.list = lapply(ODDS.omo.list, FUN = function(x) x[, c(9, 1:8)])
+```
+
+# ODDS RATIO HETERO
+
+```{r}
+ODDS.het.list = lapply(gen.list, function(x) x[, c(6, 3, 5, 2)])
+
+# Check per il formato
+lapply(ODDS.het.list, function(x) matrix(x[c(1),], nrow = 2, ncol = 2))
+
+# Applico la funzione per il Fisher test
+res.odds.het = lapply(ODDS.het.list, FUN = function(x) apply(x, MARGIN = 1, FUN = rowfish))
+
+# Traspongo la matrice di risultati e la salvo come dataframe
+res.odds.het = lapply(res.odds.het, FUN = function(x) as.data.frame(t(x)))
+
+# Bindo il dataset di dati grezzi e il dataset corrispondente di risultati
+ODDS.het.list = map2(.x = ODDS.het.list, .y = res.odds.het, bind_cols)
+
+# rinomino le variabili nuove provenienti dai risultati
+ODDS.het.list = lapply(ODDS.het.list, FUN = function(x) rename(x, p.value = V1,
+                                                                  low = V2,
+                                                                  Up = V3,
+                                                                  OR =`odds ratio`))
+
+# riassocio gli SNP
+ODDS.het.list = lapply(ODDS.het.list, FUN = function(x) mutate(x, SNP = gen.SNP))
+
+# reorder
+ODDS.het.list = lapply(ODDS.het.list, FUN = function(x) x[, c(9, 1:8)])
+```
+
+# Q values genotypes
+
+```{r}
+# q values
+# Calcolo i qvalue e li storo
+res.list = lapply(gen.list, function(x) qvalue(x$p.value))
+
+# li salvo
+res.list = lapply(res.list, function(x) x$qvalues) 
+
+# li passo a data frame
+res.list = lapply(res.list, function(x) as.data.frame(x))
+
+# binderello tra i due dataframe
+gen.list = map2(gen.list, res.list, bind_cols)
+
+# rinomonio la colonna nel modo giusto
+gen.list = lapply(gen.list, FUN = function(x) rename(x, qvalue = x))
+
+# Ordinare e subsettare link
+# http://adv-r.had.co.nz/Subsetting.html
+gen.list = lapply(gen.list, FUN = function(x) x[order(x$p.value, x$qvalue),])
+```
+
+# Q odds ratio omo
+```{r}
+# q values
+# Calcolo i qvalue e li storo
+res.list = lapply(ODDS.omo.list, function(x) qvalue(x$p.value))
+
+# li salvo
+res.list = lapply(res.list, function(x) x$qvalues) 
+
+# li passo a data frame
+res.list = lapply(res.list, function(x) as.data.frame(x))
+
+# binderello tra i due dataframe
+ODDS.omo.list = map2(ODDS.omo.list, res.list, bind_cols)
+
+# rinomonio la colonna nel modo giusto
+ODDS.omo.list = lapply(ODDS.omo.list, FUN = function(x) rename(x, qvalue = x))
+
+# Ordinare e subsettare link
+# http://adv-r.had.co.nz/Subsetting.html
+ODDS.omo.list = lapply(ODDS.omo.list, FUN = function(x) x[order(x$p.value, x$qvalue),])
+
+# reorder
+ODDS.omo.list = lapply(ODDS.omo.list, FUN = function(x) x[, c(1:6,10, 7:9)])
+```
+
+# Q odds ratio het
+```{r}
+# q values
+# Calcolo i qvalue e li storo
+res.list = lapply(ODDS.het.list, function(x) qvalue(x$p.value))
+
+# li salvo
+res.list = lapply(res.list, function(x) x$qvalues) 
+
+# li passo a data frame
+res.list = lapply(res.list, function(x) as.data.frame(x))
+
+# binderello tra i due dataframe
+ODDS.het.list = map2(ODDS.het.list, res.list, bind_cols)
+
+# rinhetnio la colonna nel modo giusto
+ODDS.het.list = lapply(ODDS.het.list, FUN = function(x) rename(x, qvalue = x))
+
+# Ordinare e subsettare link
+# http://adv-r.had.co.nz/Subsetting.html
+ODDS.het.list = lapply(ODDS.het.list, FUN = function(x) x[order(x$p.value, x$qvalue),])
+
+# reorder
+ODDS.het.list = lapply(ODDS.het.list, FUN = function(x) x[, c(1:6,10, 7:9)])
+```
+
+# Export genotypes
+
+```{r}
+write.xlsx(gen.list, file = paste(out.path, "Genotype Fishers.xlsx"))
+write.xlsx(ODDS.omo.list, file = paste(out.path, "OR OMO VAR.xlsx"))
+write.xlsx(ODDS.het.list, file = paste(out.path, "OR HET.xlsx"))
+```
+

@@ -1,0 +1,276 @@
+---
+title: "Data Manipulation AFR"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(openxlsx)
+```
+
+```{r parametrization}
+# User defined Attributes
+Pop.values = "ITA"
+
+# Input paths
+match.path = "E:\\Ace2\\"
+
+# Outpaths
+geno.path = "E:\\Ace2\\Elaborati\\SNP Genotipi\\"
+```
+
+```{r udf}
+
+```
+
+## Population Manipulation
+
+Il primo chunk ricrea una dataframe con le sequenze di interesse. Molto lungo per cui lo collasso.
+
+```{r SNP BASE}
+# Build SNP
+TSI = data.frame(rs35803318  = c(rep("C/C", 70), rep("C/T", 6), 
+                                 rep("T/T", 0), rep("C",85), rep("T", 7)),
+                 rs147311723 = c(rep("G/G", 76), rep("G/A", 0),
+                                 rep("A/A", 0), rep("G",92), rep("A", 0)),
+                 rs41303171  = c(rep("T/T", 75), rep("T/C", 1),
+                                 rep("C/C", 0), rep("C",1), rep("T", 91)),  
+                 rs149039346 = c(rep("A/A", 76), rep("G/A", 0),
+                                 rep("G/G", 0), rep("A", 92), rep("G", 0)),
+                 rs777410473 = c(rep("T/T", 76), rep("T/C", 0),
+                                 rep("C/C", 0), rep("T", 92), rep("C", 0)),
+                 rs200180615 = c(rep("C/C", 76), rep("C/T", 0),
+                                 rep("T/T", 0), rep("C", 92), rep("T", 0)),
+                 rs199951323 = c(rep("A/A", 76), rep("A/C", 0),
+                                 rep("C/C", 0), rep("A", 92), rep("C", 0)),
+                 rs183135788 = c(rep("T/T", 76), rep("T/C", 0),
+                                 rep("C/C", 0), rep("T", 92), rep("C", 0)),
+                 rs774469453 = c(rep("A/A", 75), rep("A/-", 0),
+                                 rep("-/-", 1), rep("A", 92), rep("-", 0)),
+                 rs756905974 = c(rep("T/T", 76), rep("T/C", 0),
+                                 rep("C/C", 0), rep("T", 92), rep("C", 0)),
+                 rs202137736 = c(rep("T/T", 76), rep("T/C", 0),
+                                 rep("C/C", 0), rep("T", 92), rep("C", 0)),
+                 rs779199005 = c(rep("A/A", 76), rep("A/G", 0),
+                                 rep("G/G", 0), rep("A", 92), rep("G", 0)),
+                 rs748701949 = c(rep("C/C", 76), rep("C/T", 0),
+                                 rep("T/T", 0), rep("C", 92), rep("T", 0)),
+                 rs140473595 = c(rep("C/C", 76), rep("C/T", 0),
+                                 rep("T/T", 0), rep("C", 92), rep("T", 0)),
+                 rs200973492 = c(rep("A/A", 76), rep("A/G", 0),
+                                 rep("G/G", 0), rep("A", 92), rep("G", 0)),
+                 rs191860450 = c(rep("T/T", 76), rep("T/C", 0),
+                                 rep("C/C", 0), rep("T", 92), rep("C", 0)),
+                 rs199569050 = c(rep("G/G", 76), rep("G/A", 0),
+                                 rep("A/A", 0), rep("G", 92), rep("A", 0)),
+                 rs773676270 = c(rep("T/T", 75), rep("T/C", 1),
+                                 rep("C/C", 0), rep("T", 92), rep("C", 0)),
+                 rs147464721 = c(rep("G/G", 76), rep("G/A", 0),
+                                 rep("A/A", 0), rep("G", 92), rep("A", 0)),
+                 rs138390800 = c(rep("T/T", 76), rep("T/C", 0),
+                                 rep("C/C", 0), rep("T", 92), rep("C", 0)),
+                 rs185525294 = c(rep("T/T", 76), rep("T/A", 0),
+                                 rep("A/A", 0), rep("T", 92), rep("A", 0)),
+                 rs780574871 = c(rep("C/C", 76), rep("C/T", 0),
+                                 rep("T/T", 0), rep("C", 92), rep("T", 0)),
+                 rs749750821 = c(rep("C/C", 76), rep("C/T", 0),
+                                 rep("T/T", 0), rep("C", 92), rep("T", 0)),
+                 rs745514718 = c(rep("C/C", 76), rep("C/T", 0),
+                                 rep("T/T", 0), rep("C", 92), rep("T", 0)),
+                 rs372272603 = c(rep("G/G", 76), rep("G/A", 0),
+                                 rep("A/A", 0), rep("G", 92), rep("A", 0)),
+                 rs779790336 = c(rep("C/C", 76), rep("C/G", 0),
+                                 rep("G/G", 0), rep("C", 92), rep("G", 0)),
+                 rs2285666   = c(rep("C/C", 57), rep("C/T", 15),
+                                 rep("T/T", 4), rep("C", 80), rep("T", 12)),
+                 rs528054982 = c(rep("A/A", 76), rep("A/T", 0),
+                                 rep("T/T", 0), rep("A", 92), rep("T", 0)),
+                 rs201900069 = c(rep("C/C", 76), rep("C/T", 0),
+                                 rep("T/T", 0), rep("C", 92), rep("T", 0)),
+                 rs199804629 = c(rep("C/C", 76), rep("C/T", 0),
+                                 rep("T/T", 0), rep("C", 92), rep("T", 0)),
+                 rs768558803 = c(rep("G/G", 76), rep("G/A", 0),
+                                 rep("A/A", 0), rep("G", 92), rep("A", 0)),
+                 rs761614932 = c(rep("G/G", 76), rep("G/A", 0),
+                                 rep("A/A", 0), rep("G", 92), rep("A", 0)),
+                 rs73635825  = c(rep("A/A", 76), rep("A/G", 0),
+                                 rep("G/G", 0), rep("A", 92), rep("G", 0)),
+                 rs765966061 = c(rep("G/G", 76), rep("G/T", 0),
+                                 rep("T/T", 0), rep("G", 92), rep("T", 0))
+                 )
+```
+
+```{r SNP other}
+TSI = TSI %>%
+  mutate(Sample     = paste(Pop.values, 1:168, sep = ""),
+         Population = Pop.values)
+```
+
+Per ottenere il sesso mi conviene usare ifelse sul long format, che avrei dovuto comunque ottenere. Quindi lo creo.
+
+```{r Long and Wide format}
+# Columns needed (no sample, no population)
+SNP = names(TSI[, -c(35, 36)])
+
+# Created a long format
+TSI.long = TSI %>%
+  pivot_longer(cols = SNP, 
+               names_to  = "Location",
+               values_to = "Genotype")
+
+# Gender column
+TSI.long = TSI.long %>%
+  mutate(Gender = ifelse(str_length(Genotype) == 1, "M", "F"))
+
+# reorder
+TSI.long = TSI.long[, c(1,2,5,3,4)]
+
+# Back to wide
+TSI.wide = TSI.long %>%
+  pivot_wider(id_cols = NULL,
+              names_from  = "Location",
+              values_from = "Genotype")
+
+# cleaning
+remove(TSI, SNP)
+```
+
+
+```{r matcher manipulation}
+# Matcher import
+ref.al = read.xlsx(paste(match.path, "Reference alleles.xlsx", sep = ""), sheet = 3)
+
+# Recode the var name from Variant to Location 
+# It has to match with data.long
+ref.al = ref.al %>%
+  rename(Location = Variant)
+```
+
+## Allelic counts
+
+```{r Allelic counts}
+# Count 1 every time an allele occours: es. T = 1, T/C = 1/1, T/T = 2
+# Del stands for Deletion, in this scenario deletion are considered like an allele
+TSI.long = TSI.long %>%
+  mutate(A = str_count(string = Genotype, pattern = "A"),
+         C = str_count(string = Genotype, pattern = "C"),
+         G = str_count(string = Genotype, pattern = "G"),
+         "T" = str_count(string = Genotype, pattern = "T"),
+         Del = str_count(string = Genotype, pattern = "-"))
+
+# Merge data.long with Ref.al by Location so the Ref allele matchs with alleles
+TSI.long = left_join(TSI.long, ref.al, by = "Location")
+
+# Craft Al.1 column
+TSI.long = TSI.long %>% 
+  mutate(Al.1 = ifelse(REF == "A", A, 
+                ifelse(REF == "C", C,
+                ifelse(REF == "G", G,
+                ifelse(REF == "T", `T`,
+                ifelse(REF == "-", Del, NA))))))
+
+# Craft Al.2 colum
+TSI.long = TSI.long %>%
+  mutate(Al.2 = ifelse(ALT == "A", A,
+                ifelse(ALT == "C", C,
+                ifelse(ALT == "G", G,
+                ifelse(ALT == "T", `T`,
+                ifelse(ALT == "-", Del, NA))))))
+
+# check if there are some missing values due to errors
+# You can do this check because original files have NOT NA
+sum(is.na(TSI.long))
+```
+
+
+```{r Al conts object}
+# Summarising data.long in a matrix of counts for downstream analysis
+Al.counts = TSI.long %>%
+  group_by(Location) %>%
+  summarise(Al.1 = sum(Al.1),
+            Al.2 = sum(Al.2))
+
+# Recreate a Population column for sake of clarity
+Al.counts = Al.counts %>%
+  mutate(Population = paste(Pop.values))
+
+# Reorder
+Al.counts = Al.counts[, c(4,1:3)]
+```
+
+## Genotype Counts
+
+Ricordati che se un maschio ha uno SNP sull'x e ha genotipo A e una femmina ha lo stesso SNP e ha genotipo A/A, se il ref. Allele è A allora entrambi sono omozigoti wild type. 
+
+Quindi nel conteggio dei genotipi A del maschio e A/A della femmina valgono 1 entrambi.
+
+```{r Genotype Counts}
+# Removing vars used for Al.counts
+Gen.counts = TSI.long[, -c(6:10, 13, 14)]
+
+# Creating Homozygote Reference counts' column
+# Given that there are SNP on X males have only 1 allele so we need to account that
+# duplicating for the case when Gen = A and you're male and the case when Gen =A/A
+Gen.counts = Gen.counts %>% 
+  mutate(Homozygote_Reference = ifelse(REF == "A" & Genotype == "A", 1,
+                                ifelse(REF == "C" & Genotype == "C", 1,
+                                ifelse(REF == "G" & Genotype == "G", 1,
+                                ifelse(REF == "T" & Genotype == "T", 1,
+                                ifelse(REF == "A" & Genotype == "A/A", 1,
+                                ifelse(REF == "C" & Genotype == "C/C", 1,
+                                ifelse(REF == "G" & Genotype == "G/G", 1,
+                                ifelse(REF == "T" & Genotype == "T/T", 1, 0)))))))))
+
+# Homo Variant column
+Gen.counts = Gen.counts %>% 
+  mutate(Homozygote_Variant = ifelse(ALT == "A" & Genotype == "A", 1,
+                              ifelse(ALT == "C" & Genotype == "C", 1,
+                              ifelse(ALT == "G" & Genotype == "G", 1,
+                              ifelse(ALT == "T" & Genotype == "T", 1,
+                              ifelse(ALT == "A" & Genotype == "A/A", 1,
+                              ifelse(ALT == "C" & Genotype == "C/C", 1,
+                              ifelse(ALT == "G" & Genotype == "G/G", 1,
+                              ifelse(ALT == "T" & Genotype == "T/T", 1, 0)))))))))
+
+# Hetero column
+Gen.counts = Gen.counts %>% 
+  mutate(Heterozygote = ifelse(Homozygote_Reference == 0 & Homozygote_Variant == 0, 1, 0))
+
+# Check for NA values // IF >0 the computation was wrong
+sum(is.na(Gen.counts))
+```
+
+```{r Gen.count Object}
+# Summarise to SNP level
+Gen.counts = Gen.counts %>%
+  group_by(Location) %>%
+  summarise(Homozygote_Reference = sum(Homozygote_Reference),
+            Heterozygote = sum(Heterozygote),
+            Homozygote_Variant = sum(Homozygote_Variant))
+
+# Create population column
+Gen.counts = Gen.counts %>%
+  mutate(Population = Pop.values)
+
+# reordering
+Gen.counts = Gen.counts[, c(5, 1:4)]
+```
+
+## Export for Genotype Data
+
+In questo chunk esporto i genotipi, le conte alleliche e genotipiche e il dataset in versione long per completezza
+
+```{r}
+# Create export list
+gen.list = list(Genotypes         = TSI.wide,
+                "Allelic counts"  = Al.counts,
+                "Genotype counts" = Gen.counts,
+                "Check for Long"  = TSI.long)
+
+# Export automat
+write.xlsx(gen.list, file = paste(geno.path, paste(Pop.values, ".xlsx", sep = ""),sep = ""))
+```

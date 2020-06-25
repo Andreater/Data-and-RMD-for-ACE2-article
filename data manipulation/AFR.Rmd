@@ -1,0 +1,739 @@
+---
+title: "Data Manipulation AFR"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(openxlsx)
+library(qvalue)
+```
+
+```{r parametrization}
+# User defined Attributes
+Pop.values = "AFR"
+
+# Input paths
+input.path = paste("E:\\Ace2\\SNP ACE2\\", paste(Pop.values, "\\", sep = ""), sep = "")
+match.path = "E:\\Ace2\\"
+
+# Outpaths
+geno.path = "E:\\Ace2\\Elaborati\\SNP Genotipi\\"
+gender.path = "E:\\Ace2\\Elaborati\\Gender\\" 
+```
+
+```{r udf}
+rowfish <-
+   function(x) { x1 <- 
+                      fisher.test(matrix(x, nrow = 2, ncol = 2))
+                      c(x1$p.value, x1$conf.int, x1$estimate)
+   }
+
+rowfist <-
+   function(x) { x1 <- 
+                      fisher.test(matrix(x, nrow = 3, ncol = 2))
+                      c(x1$p.value, x1$conf.int, x1$estimate)
+   }
+```
+
+## Population Manipulation
+
+```{r import}
+# Import all files
+data.list = list.files(path       = input.path,
+                       pattern    = "*.csv",
+                       full.names = TRUE) %>% lapply(read.csv)
+
+# Dataframe names import
+data.names = list.files(path       = input.path,
+                        pattern    = "*.csv",
+                        full.names = FALSE)
+
+# Matcher import
+ref.al = read.xlsx(paste(match.path, "Reference alleles.xlsx", sep = ""), sheet = 3)
+
+# Italians Import 
+ITA = read.xlsx(paste(geno.path, "ITA.xlsx", sep = ""), sheet = 1)
+```
+
+```{r matcher manipulation}
+# Recode the var name from Variant to Location 
+# It has to match with data.long
+ref.al = ref.al %>%
+  rename(Location = Variant)
+```
+
+```{r base manipulation}
+# Data names cleaning: remove .csv
+data.names = str_remove(string = data.names, pattern = ".csv")
+
+# Apply names to object in the list
+names(data.list) = data.names
+
+# Creating col.id
+col.id = c("Sample", "Genotype", "Population", "Father", "Mother")
+
+# Modify columns names
+data.list = lapply(data.list, function(x) setNames(x, col.id))
+
+# Creating Gender column
+data.list = lapply(data.list, function(x) separate(x, 
+                                                   col  = "Sample", 
+                                                   into = c("Sample", "Gender"),
+                                                   sep  = " "))
+
+# Replacing | with / in Genotypes so: T|T becames T/T
+data.list = lapply(data.list, function(x) mutate(x, Genotype = str_replace_all(x[["Genotype"]],
+                                                                               pattern = "\\|",
+                                                                               replacement = "/"))
+                   )
+
+# Replace (M) and (F) with M and F
+data.list = lapply(data.list, function(x) mutate(x, Gender = ifelse(Gender == "(M)", "M", "F")))
+
+# Reducing population from multiple names to 1 parametrized name
+# es: AFR1, AFR2, AFR3 = AFR
+data.list = lapply(data.list, function(x) mutate(x, Population = Pop.values))
+
+# Removing father and mother columns (all NA)
+data.list = lapply(data.list, function(x) select(x, Sample, Gender, Genotype, Population))
+```
+
+## Advanced Manipulation
+
+Da approfondire come funziona cbind. In generale quel che capisco è che combina per ogni argomento un altro argomento di un vettore per cui se hai un solo nome lo ripete per la lunghezza dell'altro vettore. In questo caso per la lunghezza del df.
+
+```{r Long and Wide, message=FALSE, warning=FALSE}
+# Create a column in every dataframe 
+# The column is named "Location"
+# The column is populated with df names using cbind
+# cbind è un sistema di combinazione 
+data.list = Map(cbind, data.list, Location = names(data.list))
+
+# bind_rows and reduce per ottenere un solo df.
+data <- data.list %>% purrr::reduce(bind_rows)
+
+# store the long version
+data.long = data
+
+# From long version to wide version
+data.wide = data %>% pivot_wider(id_cols     = NULL,
+                                 names_from  = "Location",
+                                 values_from = "Genotype")
+
+# Control: n level of Location is equal to n of the SNP
+# This means that bindrows binded all of the df
+nlevels(as.factor(data.long$Location)) == nlevels(as.factor(data.names))
+
+# cleaning
+remove(data, data.list, data.names, col.id)
+```
+
+## Allelic counts
+
+L'allele rs774469453 ha come *reference Allele* la A. L'alternative allele non è un altro allele ma è una delezione, codificata come - . Questo significa che il soggetto *NA20299* ha genotipo A/- . Questo significa che devi contare anche lui. è stato codificato come Del.
+
+Nota: Negli **excel di Valerio** sugli italiani non è indicato con il - ma con la voce DEL.
+
+```{r Allelic counts}
+# Count 1 every time an allele occours: es. T = 1, T/C = 1/1, T/T = 2
+# Del stands for Deletion, in this scenario deletion are considered like an allele
+data.long = data.long %>%
+  mutate(A = str_count(string = Genotype, pattern = "A"),
+         C = str_count(string = Genotype, pattern = "C"),
+         G = str_count(string = Genotype, pattern = "G"),
+         "T" = str_count(string = Genotype, pattern = "T"),
+         Del = str_count(string = Genotype, pattern = "-"))
+
+# Merge data.long with Ref.al by Location so the Ref allele matchs with alleles
+data.long = left_join(data.long, ref.al, by = "Location")
+
+# Craft Al.1 column
+data.long = data.long %>% 
+  mutate(Al.1 = ifelse(REF == "A", A, 
+                ifelse(REF == "C", C,
+                ifelse(REF == "G", G,
+                ifelse(REF == "T", `T`,
+                ifelse(REF == "-", Del, NA))))))
+
+# Craft Al.2 colum
+data.long = data.long %>%
+  mutate(Al.2 = ifelse(ALT == "A", A,
+                ifelse(ALT == "C", C,
+                ifelse(ALT == "G", G,
+                ifelse(ALT == "T", `T`,
+                ifelse(ALT == "-", Del, NA))))))
+
+# check if there are some missing values due to errors
+# You can do this check because original files have NOT NA
+sum(is.na(data.long))
+```
+
+
+```{r Al conts object}
+# Summarising data.long in a matrix of counts for downstream analysis
+Al.counts = data.long %>%
+  group_by(Location) %>%
+  summarise(Al.1 = sum(Al.1),
+            Al.2 = sum(Al.2))
+
+# Recreate a Population column for sake of clarity
+Al.counts = Al.counts %>%
+  mutate(Population = paste(Pop.values))
+
+# Reorder
+Al.counts = Al.counts[, c(4,1:3)]
+```
+
+## Genotype Counts
+
+Ricordati che se un maschio ha uno SNP sull'x e ha genotipo A e una femmina ha lo stesso SNP e ha genotipo A/A, se il ref. Allele è A allora entrambi sono omozigoti wild type. 
+
+Quindi nel conteggio dei genotipi A del maschio e A/A della femmina valgono 1 entrambi.
+
+```{r Genotype Counts}
+# Removing vars used for Al.counts
+Gen.counts = data.long[, -c(6:10, 13, 14)]
+
+# Creating Homozygote Reference counts' column
+# Given that there are SNP on X males have only 1 allele so we need to account that
+# duplicating for the case when Gen = A and you're male and the case when Gen =A/A
+Gen.counts = Gen.counts %>% 
+  mutate(Homozygote_Reference = ifelse(REF == "A" & Genotype == "A", 1,
+                                ifelse(REF == "C" & Genotype == "C", 1,
+                                ifelse(REF == "G" & Genotype == "G", 1,
+                                ifelse(REF == "T" & Genotype == "T", 1,
+                                ifelse(REF == "A" & Genotype == "A/A", 1,
+                                ifelse(REF == "C" & Genotype == "C/C", 1,
+                                ifelse(REF == "G" & Genotype == "G/G", 1,
+                                ifelse(REF == "T" & Genotype == "T/T", 1, 0)))))))))
+
+# Homo Variant column
+Gen.counts = Gen.counts %>% 
+  mutate(Homozygote_Variant = ifelse(ALT == "A" & Genotype == "A", 1,
+                              ifelse(ALT == "C" & Genotype == "C", 1,
+                              ifelse(ALT == "G" & Genotype == "G", 1,
+                              ifelse(ALT == "T" & Genotype == "T", 1,
+                              ifelse(ALT == "A" & Genotype == "A/A", 1,
+                              ifelse(ALT == "C" & Genotype == "C/C", 1,
+                              ifelse(ALT == "G" & Genotype == "G/G", 1,
+                              ifelse(ALT == "T" & Genotype == "T/T", 1, 0)))))))))
+
+# Hetero column
+Gen.counts = Gen.counts %>% 
+  mutate(Heterozygote = ifelse(Homozygote_Reference == 0 & Homozygote_Variant == 0, 1, 0))
+
+# Check for NA values // IF >0 the computation was wrong
+sum(is.na(Gen.counts))
+```
+
+```{r Gen.count Object}
+# Summarise to SNP level
+Gen.counts = Gen.counts %>%
+  group_by(Location) %>%
+  summarise(Homozygote_Reference = sum(Homozygote_Reference),
+            Heterozygote = sum(Heterozygote),
+            Homozygote_Variant = sum(Homozygote_Variant))
+
+# Create population column
+Gen.counts = Gen.counts %>%
+  mutate(Population = Pop.values)
+```
+
+
+```{r Gen.count Object}
+# reordering
+Gen.counts = Gen.counts[, c(5, 1:4)]
+```
+
+## Export for Genotype Data
+
+In questo chunk esporto i genotipi, le conte alleliche e genotipiche e il dataset in versione long per completezza
+
+```{r Gen.count Object}
+# Create export list
+gen.list = list(Genotypes         = data.wide,
+                "Allelic counts"  = Al.counts,
+                "Genotype counts" = Gen.counts,
+                "Check for Long"  = data.long)
+
+# Export automat
+write.xlsx(gen.list, file = paste(geno.path, paste(Pop.values, ".xlsx", sep = ""),sep = ""))
+```
+
+***
+
+## Manipulation for Sex Comparison
+
+Niente di particolarmente interessante: Splitto per genere il gruppo di controllo e manipolo gli italiani. Sarebbe stato meglio farlo in un altro foglio e poi importarsi le cose già pronte ma onestamente non mi va. AMR genotipo. TUTTI hanno il problema degli alleli tranne gli AMR
+
+```{r Split for Gender}
+Al.females.count = data.long %>% 
+  filter(Gender == "F")%>%
+  group_by(Location) %>% 
+  summarise(CTRL.Al1 = sum(Al.1),
+            CTRL.Al2 = sum(Al.2))
+
+Al.males.count = data.long %>% 
+  filter(Gender == "M") %>%
+  group_by(Location) %>% 
+  summarise(CTRL.Al1 = sum(Al.1),
+            CTRL.Al2 = sum(Al.2))
+
+Al.gender.list = list("F" = Al.females.count,
+                      "M" = Al.males.count)
+```
+
+
+```{r Genotype counts divided by gender for ctrl population}
+# Removing vars used for Al.counts
+Gen.counts.gender = data.long[, -c(6:10, 13, 14)]
+
+# Creating Homozygote Reference counts' column
+# Given that there are SNP on X males have only 1 allele so we need to account that
+# duplicating for the case when Gen = A and you're male and the case when Gen =A/A
+Gen.counts.gender = Gen.counts.gender %>% 
+  mutate(Homozygote_Reference = ifelse(REF == "A" & Genotype == "A", 1,
+                                ifelse(REF == "C" & Genotype == "C", 1,
+                                ifelse(REF == "G" & Genotype == "G", 1,
+                                ifelse(REF == "T" & Genotype == "T", 1,
+                                ifelse(REF == "A" & Genotype == "A/A", 1,
+                                ifelse(REF == "C" & Genotype == "C/C", 1,
+                                ifelse(REF == "G" & Genotype == "G/G", 1,
+                                ifelse(REF == "T" & Genotype == "T/T", 1, 0)))))))))
+
+# Homo Variant column
+Gen.counts.gender = Gen.counts.gender %>% 
+  mutate(Homozygote_Variant = ifelse(ALT == "A" & Genotype == "A", 1,
+                              ifelse(ALT == "C" & Genotype == "C", 1,
+                              ifelse(ALT == "G" & Genotype == "G", 1,
+                              ifelse(ALT == "T" & Genotype == "T", 1,
+                              ifelse(ALT == "A" & Genotype == "A/A", 1,
+                              ifelse(ALT == "C" & Genotype == "C/C", 1,
+                              ifelse(ALT == "G" & Genotype == "G/G", 1,
+                              ifelse(ALT == "T" & Genotype == "T/T", 1, 0)))))))))
+
+# Hetero column
+Gen.counts.gender = Gen.counts.gender %>% 
+  mutate(Heterozygote = ifelse(Homozygote_Reference == 0 & Homozygote_Variant == 0, 1, 0))
+
+# Check for NA values // IF >0 the computation was wrong
+sum(is.na(Gen.counts.gender))
+
+# Summarise to SNP level for males
+CTRL.gen.males = Gen.counts.gender %>%
+  filter(Gender == "M") %>%
+  group_by(Location) %>% 
+  summarise(Homozygote_Reference = sum(Homozygote_Reference),
+            Heterozygote = sum(Heterozygote),
+            Homozygote_Variant = sum(Homozygote_Variant))
+
+# Summarise to SNP level for females
+CTRL.gen.females = Gen.counts.gender %>%
+  filter(Gender == "F") %>%
+  group_by(Location) %>% 
+  summarise(Homozygote_Reference = sum(Homozygote_Reference),
+            Heterozygote = sum(Heterozygote),
+            Homozygote_Variant = sum(Homozygote_Variant))
+
+# Final list
+Geno.gender.list = list("F" = CTRL.gen.females,
+                        "M" = CTRL.gen.males)
+```
+
+```{r ITA Manipulation}
+# Storing SNP names
+SNP = names(ITA[, c(4:37)])
+
+# Long Format for ITA
+ITA.long = ITA %>%
+  pivot_longer(cols = all_of(SNP),
+               names_to  = "Location",
+               values_to = "Genotype")
+
+# Count 1 every time an allele occours: es. T = 1, T/C = 1/1, T/T = 2
+# Del stands for Deletion, in this scenario deletion are considered like an allele
+ITA.long = ITA.long %>%
+  mutate(A = str_count(string = Genotype, pattern = "A"),
+         C = str_count(string = Genotype, pattern = "C"),
+         G = str_count(string = Genotype, pattern = "G"),
+         "T" = str_count(string = Genotype, pattern = "T"),
+         Del = str_count(string = Genotype, pattern = "-"))
+
+# Merge ITA.long with Ref.al by Location so the Ref allele matchs with alleles
+ITA.long = left_join(ITA.long, ref.al, by = "Location")
+
+# Craft Al.1 column
+ITA.long = ITA.long %>% 
+  mutate(Al.1 = ifelse(REF == "A", A, 
+                ifelse(REF == "C", C,
+                ifelse(REF == "G", G,
+                ifelse(REF == "T", `T`,
+                ifelse(REF == "-", Del, NA))))))
+
+# Craft Al.2 colum
+ITA.long = ITA.long %>%
+  mutate(Al.2 = ifelse(ALT == "A", A,
+                ifelse(ALT == "C", C,
+                ifelse(ALT == "G", G,
+                ifelse(ALT == "T", `T`,
+                ifelse(ALT == "-", Del, NA))))))
+
+# check if there are some missing values due to errors
+# You can do this check because original files have NOT NA
+sum(is.na(ITA.long))
+```
+
+```{r ITA ALLELIC COUNTS DIVIDED BY GENDER}
+# Creating Allelic counts for italian males only
+ITA.Al.males = ITA.long %>% 
+  filter(Gender == "M") %>% 
+  group_by(Location) %>% 
+  summarise(Al.1 = sum(Al.1),
+            Al.2 = sum(Al.2))
+
+# Creating Allelic counts for italian males only
+ITA.Al.females = ITA.long %>% 
+  filter(Gender == "F") %>% 
+  group_by(Location) %>% 
+  summarise(Al.1 = sum(Al.1),
+            Al.2 = sum(Al.2))
+```
+
+```{r ITA Genotype Counts}
+# Removing vars used for Al.counts
+ITA.gen.counts = ITA.long[, -c(6:10, 13, 14)]
+
+# Creating Homozygote Reference counts' column
+# Given that there are SNP on X males have only 1 allele so we need to account that
+# duplicating for the case when Gen = A and you're male and the case when Gen =A/A
+ITA.gen.counts = ITA.gen.counts %>% 
+  mutate(Homozygote_Reference = ifelse(REF == "A" & Genotype == "A", 1,
+                                ifelse(REF == "C" & Genotype == "C", 1,
+                                ifelse(REF == "G" & Genotype == "G", 1,
+                                ifelse(REF == "T" & Genotype == "T", 1,
+                                ifelse(REF == "A" & Genotype == "A/A", 1,
+                                ifelse(REF == "C" & Genotype == "C/C", 1,
+                                ifelse(REF == "G" & Genotype == "G/G", 1,
+                                ifelse(REF == "T" & Genotype == "T/T", 1, 0)))))))))
+
+# Homo Variant column
+ITA.gen.counts = ITA.gen.counts %>% 
+  mutate(Homozygote_Variant = ifelse(ALT == "A" & Genotype == "A", 1,
+                              ifelse(ALT == "C" & Genotype == "C", 1,
+                              ifelse(ALT == "G" & Genotype == "G", 1,
+                              ifelse(ALT == "T" & Genotype == "T", 1,
+                              ifelse(ALT == "A" & Genotype == "A/A", 1,
+                              ifelse(ALT == "C" & Genotype == "C/C", 1,
+                              ifelse(ALT == "G" & Genotype == "G/G", 1,
+                              ifelse(ALT == "T" & Genotype == "T/T", 1, 0)))))))))
+
+# Hetero column
+ITA.gen.counts = ITA.gen.counts %>% 
+  mutate(Heterozygote = ifelse(Homozygote_Reference == 0 & Homozygote_Variant == 0, 1, 0))
+
+# Check for NA values // IF >0 the computation was wrong
+sum(is.na(ITA.gen.counts))
+```
+
+```{r ITA GENOTYPE COUNTS DIVIDED BY GENDER}
+# Summarise to SNP level for males
+ITA.gen.males = ITA.gen.counts %>%
+  filter(Gender == "M") %>%
+  group_by(Location) %>% 
+  summarise(Homozygote_Reference = sum(Homozygote_Reference),
+            Heterozygote = sum(Heterozygote),
+            Homozygote_Variant = sum(Homozygote_Variant))
+
+# Summarise to SNP level for females
+ITA.gen.females = ITA.gen.counts %>%
+  filter(Gender == "F") %>%
+  group_by(Location) %>% 
+  summarise(Homozygote_Reference = sum(Homozygote_Reference),
+            Heterozygote = sum(Heterozygote),
+            Homozygote_Variant = sum(Homozygote_Variant))
+```
+
+```{r Section cleaning}
+remove(Al.counts, CTRL.gen.females, CTRL.gen.males,
+       data.long, data.wide, Gen.counts, Gen.counts.gender,
+       gen.list, ITA, ITA.gen.counts, SNP, ITA.long, ref.al)
+```
+
+
+## Advanced Manipulation for Sex Comparison between nationalities
+
+```{r AL between nations}
+# Binding Females ctrl with case females and so on so forth
+Al.gender.list[["F"]] = left_join(Al.gender.list[["F"]], ITA.Al.females, by = "Location")
+Al.gender.list[["M"]] = left_join(Al.gender.list[["M"]], ITA.Al.males, by = "Location")
+
+# Salvo gli SNP
+Al.SNP = Al.gender.list[["F"]][["Location"]]
+
+# Removing SNP
+Al.gender.list = lapply(Al.gender.list, function(x) x[, -c(1)])
+```
+
+```{r GENO between nations}
+# Rename control columns
+Geno.gender.list = lapply(Geno.gender.list, function(x) rename(x, Homo_ref = Homozygote_Reference,
+                                                                  Hetero   = Heterozygote,
+                                                                  Homo_var = Homozygote_Variant))
+# Binding Females ctrl with case females and so on so forth
+Geno.gender.list[["F"]] = left_join(Geno.gender.list[["F"]], ITA.gen.females, by = "Location")
+Geno.gender.list[["M"]] = left_join(Geno.gender.list[["M"]], ITA.gen.males, by = "Location")
+
+# Salvo gli SNP
+Geno.SNP = Geno.gender.list[["F"]][["Location"]]
+
+# Removing SNP
+Geno.gender.list = lapply(Geno.gender.list, function(x) x[, -c(1)])
+```
+
+### Allelic Fisher
+
+```{r Allelic fisher between nations for Females and Males}
+# Applico la funzione per il Fisher test
+res.list = lapply(Al.gender.list, FUN = function(x) apply(x, MARGIN = 1, FUN = rowfish))
+
+# Traspongo la matrice di risultati e la salvo come dataframe
+res.list = lapply(res.list, FUN = function(x) as.data.frame(t(x)))
+
+# Bindo il dataset di dati grezzi e il dataset corrispondente di risultati
+Al.gender.list = map2(.x = Al.gender.list, .y = res.list, bind_cols)
+
+# rinomino le variabili nuove provenienti dai risultati
+Al.gender.list = lapply(Al.gender.list, FUN = function(x) rename(x, p.value = V1,
+                                                      low = V2,
+                                                      Up = V3,
+                                                      OR =`odds ratio`))
+
+# riassocio gli SNP
+Al.gender.list = lapply(Al.gender.list, FUN = function(x) mutate(x, SNP = Al.SNP))
+
+# reorder
+Al.gender.list = lapply(Al.gender.list, FUN = function(x) x[, c(9, 1:8)])
+```
+
+```{r Q values Allelic fisher}
+# q values
+# Calcolo i qvalue e li storo
+res.list = lapply(Al.gender.list, function(x) qvalue(x$p.value))
+
+# li salvo
+res.list = lapply(res.list, function(x) x$qvalues) 
+
+# li passo a data frame
+res.list = lapply(res.list, function(x) as.data.frame(x))
+
+# binderello tra i due dataframe
+Al.gender.list = map2(Al.gender.list, res.list, bind_cols)
+
+# rinomonio la colonna nel modo giusto
+Al.gender.list = lapply(Al.gender.list, FUN = function(x) rename(x, qvalue = x))
+
+# reorder
+Al.gender.list = lapply(Al.gender.list, FUN = function(x) x[, c(1:6, 10, 7:9)])
+
+# Ordinare e subsettare link
+# http://adv-r.had.co.nz/Subsetting.html
+Al.gender.list = lapply(Al.gender.list, FUN = function(x) x[order(x$p.value, x$qvalue),])
+```
+
+### Genotypic fisher between nations
+
+```{r genotpyc fisher between nations}
+# Applico la funzione per il Fisher test
+res.list = lapply(Geno.gender.list, FUN = function(x) apply(x, MARGIN = 1, FUN = rowfist))
+
+# salvo la matrice come dataframe e rinomino
+res.list = lapply(res.list, FUN = function(x) as.data.frame((x)))
+res.list = lapply(res.list, FUN = function(x) rename(x, x1 = "(x)"))
+
+# Bindo il dataset di dati grezzi e il dataset corrispondente di risultati
+Geno.gender.list = map2(.x = Geno.gender.list, .y = res.list, bind_cols)
+
+# rinomino le variabili nuove provenienti dai risultati
+Geno.gender.list = lapply(Geno.gender.list, FUN = function(x) rename(x, p.value = x1))
+
+# riassocio gli SNP
+Geno.gender.list = lapply(Geno.gender.list, FUN = function(x) mutate(x, SNP = Geno.SNP))
+
+# reorder
+Geno.gender.list = lapply(Geno.gender.list, FUN = function(x) x[, c(8, 1:7)])
+```
+
+```{r Q values genotipi}
+# q values
+# Calcolo i qvalue e li storo
+res.list = lapply(Geno.gender.list, function(x) qvalue(x$p.value))
+
+# li salvo
+res.list = lapply(res.list, function(x) x$qvalues) 
+
+# li passo a data frame
+res.list = lapply(res.list, function(x) as.data.frame(x))
+
+# binderello tra i due dataframe
+Geno.gender.list = map2(Geno.gender.list, res.list, bind_cols)
+
+# rinomonio la colonna nel modo giusto
+Geno.gender.list = lapply(Geno.gender.list, FUN = function(x) rename(x, qvalue = x))
+
+# Ordinare e subsettare link
+# http://adv-r.had.co.nz/Subsetting.html
+Geno.gender.list = lapply(Geno.gender.list, FUN = function(x) x[order(x$p.value, x$qvalue),])
+```
+
+```{r}
+write.xlsx(Al.gender.list, file = paste(gender.path, paste(Pop.values, "vs ITA Allelic by Gender.xlsx", sep = " "), sep = ""))
+
+write.xlsx(Geno.gender.list, file = paste(gender.path, paste(Pop.values, "vs ITA Genotype by Gender.xlsx", sep = " "), sep = ""))
+```
+
+# Comparison in nation
+
+```{r}
+pop.f = as.data.frame(Al.gender.list[["F"]])
+pop.m = as.data.frame(Al.gender.list[["M"]])
+
+pop.f = pop.f %>% rename(Female.Al1 = CTRL.Al1, Female.Al2 = CTRL.Al2)
+pop.m = pop.m %>% rename(Male.Al1 = CTRL.Al1, Male.Al2 = CTRL.Al2)
+
+pop.f = pop.f[, -c(4:10)]
+pop.m = pop.m[, -c(4:10)]
+
+pop = left_join(pop.f, pop.m, by = "SNP")
+
+SNP = pop$SNP
+
+pop = pop[, -c(1)]
+
+remove(pop.f, pop.m)
+```
+
+```{r Allelic fisher in ref pop}
+# Applico la funzione per il Fisher test
+res = apply(pop, MARGIN = 1, FUN = rowfish)
+
+# Traspongo la matrice di risultati e la salvo come dataframe
+res = as.data.frame(t(res))
+
+# Bindo il dataset di dati grezzi e il dataset corrispondente di risultati
+pop = bind_cols(pop, res)
+
+# rinomino le variabili nuove provenienti dai risultati
+pop = pop %>%
+  rename(p.value = V1,
+         low = V2,
+         Up = V3,
+         OR =`odds ratio`)
+
+# riassocio gli SNP
+pop = pop %>% mutate(SNP = Al.SNP)
+
+# reorder
+pop = pop[, c(9, 1:8)]
+```
+
+```{r Q values Allelic fisher}
+# q values
+# Calcolo i qvalue e li storo
+res = qvalue(pop$p.value)
+
+# li salvo
+res = res$qvalues 
+
+# li passo a data frame
+res = as.data.frame(res)
+
+# binderello tra i due dataframe
+pop = bind_cols(pop, res)
+
+# rinomonio la colonna nel modo giusto
+pop = pop %>% rename(qvalue = res)
+
+# reorder
+pop = pop[, c(1:6, 10, 7:9)]
+
+# Ordinare e subsettare link
+# http://adv-r.had.co.nz/Subsetting.html
+pop = pop[order(pop$p.value, pop$qvalue),]
+```
+
+```{r}
+write.xlsx(pop, file = paste(gender.path, paste(Pop.values, "by Gender.xlsx", sep = " "), sep =""))
+```
+
+# ITA comparison
+
+```{r}
+ITA.f = ITA.Al.females %>% rename(Female.Al1 = Al.1, Female.Al2 = Al.2)
+ITA.m = ITA.Al.males %>% rename(Male.Al1 = Al.1, Male.Al2 = Al.2)
+
+ITA = left_join(ITA.f, ITA.m, by = "Location")
+
+SNP = ITA$Location
+
+ITA = ITA[, -c(1)]
+
+remove(ITA.f, ITA.m)
+```
+
+```{r Allelic fisher in ref ITA}
+# Applico la funzione per il Fisher test
+res = apply(ITA, MARGIN = 1, FUN = rowfish)
+
+# Traspongo la matrice di risultati e la salvo come dataframe
+res = as.data.frame(t(res))
+
+# Bindo il dataset di dati grezzi e il dataset corrispondente di risultati
+ITA = bind_cols(ITA, res)
+
+# rinomino le variabili nuove provenienti dai risultati
+ITA = ITA %>%
+  rename(p.value = V1,
+         low = V2,
+         Up = V3,
+         OR =`odds ratio`)
+
+# riassocio gli SNP
+ITA = ITA %>% mutate(SNP = Al.SNP)
+
+# reorder
+ITA = ITA[, c(9, 1:8)]
+```
+
+```{r Q values Allelic fisher}
+# q values
+# Calcolo i qvalue e li storo
+res = qvalue(ITA$p.value)
+
+# li salvo
+res = res$qvalues 
+
+# li passo a data frame
+res = as.data.frame(res)
+
+# binderello tra i due dataframe
+ITA = bind_cols(ITA, res)
+
+# rinomonio la colonna nel modo giusto
+ITA = ITA %>% rename(qvalue = res)
+
+# reorder
+ITA = ITA[, c(1:6, 10, 7:9)]
+
+# Ordinare e subsettare link
+# http://adv-r.had.co.nz/Subsetting.html
+ITA = ITA[order(ITA$p.value, ITA$qvalue),]
+```
+
+```{r}
+write.xlsx(ITA, file = paste(gender.path, "ITA by Gender.xlsx", sep = ""))
+```
