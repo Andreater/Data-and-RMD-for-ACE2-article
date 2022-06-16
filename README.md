@@ -2,7 +2,10 @@
 
 ![alt text](https://www.mdpi.com/genes/genes-11-00741/article_deploy/html/images/genes-11-00741-g002.png)
 
- ## Article abstract
+## Quick summary
+This repository contains genetic data and R code we used in the Analysis of ACE2 Genetic Variability among Populations Highlights a Possible Link with COVID-19-Related Neurological Complications scientific article. The article was published in July 2020 by [Genes](https://www.mdpi.com/journal/genes), which is an international peer-reviewed scientific journal. The article is published in open access. 
+
+## Article abstract
 Angiotensin-converting enzyme 2 (ACE2) has been recognized as the entry receptor of the novel severe acute respiratory syndrome coronavirus 2 (SARS-Cov-2). Structural and sequence variants in ACE2 gene may affect its expression in different tissues and determine a differential response to SARS-Cov-2 infection and the COVID-19-related phenotype. The present study investigated the genetic variability of ACE2 in terms of single nucleotide variants (SNVs), copy number variations (CNVs), and expression quantitative loci (eQTLs) in a cohort of 268 individuals representative of the general Italian population. The analysis identified five SNVs (rs35803318, rs41303171, rs774469453, rs773676270, and rs2285666) in the Italian cohort. Of them, rs35803318 and rs2285666 displayed a significant different frequency distribution in the Italian population with respect to worldwide population. The eQTLs analysis located in and targeting ACE2 revealed a high distribution of eQTL variants in different brain tissues, suggesting a possible link between ACE2 genetic variability and the neurological complications in patients with COVID-19. Further research is needed to clarify the possible relationship between ACE2 expression and the susceptibility to neurological complications in patients with COVID-19. In fact, patients at higher risk of neurological involvement may need different monitoring and treatment strategies in order to prevent severe, permanent brain injury.
 
 ## About the data
